@@ -19,6 +19,50 @@ pub fn is_testing() -> bool {
     unsafe { TESTING }
 }
 
+#[derive(Serialize, Deserialize, Clone)]
+pub struct SecurityConfig {
+    #[serde(default = "default_require_auth")]
+    pub require_auth: bool,
+
+    #[serde(default = "default_api_keys")]
+    pub api_keys: Vec<String>, // Stored as SHA256 hashes
+
+    #[serde(default = "default_allow_remote")]
+    pub allow_remote: bool,
+}
+
+impl Default for SecurityConfig {
+    fn default() -> SecurityConfig {
+        SecurityConfig {
+            require_auth: default_require_auth(),
+            api_keys: default_api_keys(),
+            allow_remote: default_allow_remote(),
+        }
+    }
+}
+
+#[derive(Serialize, Deserialize, Clone)]
+pub struct TlsConfig {
+    #[serde(default = "default_tls_enabled")]
+    pub enabled: bool,
+
+    #[serde(default = "default_tls_cert")]
+    pub cert: String,
+
+    #[serde(default = "default_tls_key")]
+    pub key: String,
+}
+
+impl Default for TlsConfig {
+    fn default() -> TlsConfig {
+        TlsConfig {
+            enabled: default_tls_enabled(),
+            cert: default_tls_cert(),
+            key: default_tls_key(),
+        }
+    }
+}
+
 #[derive(Serialize, Deserialize)]
 pub struct AWConfig {
     #[serde(default = "default_address")]
@@ -37,6 +81,12 @@ pub struct AWConfig {
     // custom visualizations are located.
     #[serde(default = "default_custom_static")]
     pub custom_static: std::collections::HashMap<String, String>,
+
+    #[serde(default)]
+    pub security: SecurityConfig,
+
+    #[serde(default)]
+    pub tls: TlsConfig,
 }
 
 impl Default for AWConfig {
@@ -47,6 +97,8 @@ impl Default for AWConfig {
             testing: default_testing(),
             cors: default_cors(),
             custom_static: default_custom_static(),
+            security: SecurityConfig::default(),
+            tls: TlsConfig::default(),
         }
     }
 }
@@ -70,6 +122,15 @@ impl AWConfig {
         config.port = self.port;
         config.keep_alive = 0;
         config.limits = limits;
+
+        // Configure TLS if enabled
+        if self.tls.enabled {
+            use std::path::PathBuf;
+            config.tls = Some(rocket::config::TlsConfig::from_paths(
+                PathBuf::from(&self.tls.cert),
+                PathBuf::from(&self.tls.key),
+            ));
+        }
 
         config
     }
@@ -97,6 +158,30 @@ fn default_port() -> u16 {
 
 fn default_custom_static() -> std::collections::HashMap<String, String> {
     std::collections::HashMap::new()
+}
+
+fn default_require_auth() -> bool {
+    false
+}
+
+fn default_api_keys() -> Vec<String> {
+    Vec::new()
+}
+
+fn default_allow_remote() -> bool {
+    false
+}
+
+fn default_tls_enabled() -> bool {
+    false
+}
+
+fn default_tls_cert() -> String {
+    "cert.pem".to_string()
+}
+
+fn default_tls_key() -> String {
+    "key.pem".to_string()
 }
 
 pub fn create_config(testing: bool) -> AWConfig {

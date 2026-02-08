@@ -91,6 +91,33 @@ async fn main() -> Result<(), rocket::Error> {
         config.port = port.parse().unwrap();
     }
 
+    // Security warnings
+    let is_remote = config.address != "127.0.0.1" && config.address != "localhost";
+    if is_remote {
+        warn!("⚠️  Server is binding to a non-localhost address: {}", config.address);
+
+        if !config.security.allow_remote {
+            error!("❌ Remote access is not allowed. Set security.allow_remote = true in config.toml");
+            error!("   or bind to localhost (127.0.0.1) for local-only access");
+            std::process::exit(1);
+        }
+
+        if !config.security.require_auth {
+            error!("❌ CRITICAL SECURITY WARNING: Remote access enabled WITHOUT authentication!");
+            error!("   Set security.require_auth = true and add API keys to config.toml");
+            error!("   Generate an API key hash: echo -n 'your-secret-key' | sha256sum");
+            std::process::exit(1);
+        }
+
+        if !config.tls.enabled {
+            warn!("⚠️  WARNING: Remote access enabled without TLS/HTTPS encryption!");
+            warn!("   Your data will be transmitted in plain text over the network.");
+            warn!("   Enable TLS by setting tls.enabled = true in config.toml");
+        }
+
+        info!("✓ Remote access enabled with authentication");
+    }
+
     // set custom_static if overridden, transform into map
     if let Some(custom_static_str) = opts.custom_static {
         let custom_static_map: std::collections::HashMap<String, String> = custom_static_str
