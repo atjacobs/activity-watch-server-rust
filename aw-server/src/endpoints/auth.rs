@@ -26,12 +26,15 @@ static FAIRING_ROUTE_BASE: &str = "/auth_fairing";
 /// Intercepts all requests and validates API key if authentication is required
 pub struct AuthCheck {
     config: SecurityConfig,
+    is_localhost: bool,
 }
 
 impl AuthCheck {
     pub fn new(config: &AWConfig) -> AuthCheck {
+        let is_localhost = config.address == "127.0.0.1" || config.address == "localhost";
         AuthCheck {
             config: config.security.clone(),
+            is_localhost,
         }
     }
 
@@ -116,8 +119,13 @@ impl Fairing for AuthCheck {
     }
 
     async fn on_ignite(&self, rocket: Rocket<rocket::Build>) -> rocket::fairing::Result {
+        if self.is_localhost {
+            info!("Server bound to localhost - authentication DISABLED for backward compatibility");
+            return Ok(rocket);
+        }
+
         if self.config.require_auth {
-            info!("API key authentication is ENABLED");
+            info!("API key authentication is ENABLED for remote access");
             if self.config.api_keys.is_empty() {
                 error!("Authentication is required but no API keys are configured!");
                 error!("Add API key hashes to the [security] section of your config.toml");
@@ -133,6 +141,13 @@ impl Fairing for AuthCheck {
     }
 
     async fn on_request(&self, request: &mut Request<'_>, _: &mut Data<'_>) {
+        // ALWAYS allow localhost connections without authentication
+        // This ensures backward compatibility
+        if self.is_localhost {
+            return;
+        }
+
+        // For remote connections, check if auth is required
         if !self.config.require_auth {
             // Authentication is disabled
             return;
@@ -174,6 +189,12 @@ impl<'r> FromRequest<'r> for ApiKey {
             .guard::<&State<AWConfig>>()
             .await
             .expect("AWConfig not found in state");
+
+        // ALWAYS allow localhost connections without authentication
+        let is_localhost = config.address == "127.0.0.1" || config.address == "localhost";
+        if is_localhost {
+            return Outcome::Success(ApiKey);
+        }
 
         // If auth is not required, allow the request
         if !config.security.require_auth {
@@ -230,7 +251,10 @@ mod tests {
         let hash = AuthCheck::hash_api_key(key);
         config.api_keys.push(hash);
 
-        let auth_check = AuthCheck { config };
+        let auth_check = AuthCheck {
+            config,
+            is_localhost: false,
+        };
 
         // Correct key should verify
         assert!(auth_check.verify_api_key(key));
