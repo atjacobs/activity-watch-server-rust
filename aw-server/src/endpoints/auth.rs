@@ -119,13 +119,9 @@ impl Fairing for AuthCheck {
     }
 
     async fn on_ignite(&self, rocket: Rocket<rocket::Build>) -> rocket::fairing::Result {
-        if self.is_localhost {
-            info!("Server bound to localhost - authentication DISABLED for backward compatibility");
-            return Ok(rocket);
-        }
-
         if self.config.require_auth {
-            info!("API key authentication is ENABLED for remote access");
+            info!("API key authentication is ENABLED for remote clients");
+            info!("Local clients (127.0.0.1/localhost) can connect without authentication");
             if self.config.api_keys.is_empty() {
                 error!("Authentication is required but no API keys are configured!");
                 error!("Add API key hashes to the [security] section of your config.toml");
@@ -135,15 +131,27 @@ impl Fairing for AuthCheck {
             }
             Ok(rocket.mount(FAIRING_ROUTE_BASE, vec![auth_error_route()]))
         } else {
-            warn!("API key authentication is DISABLED - this is a security risk for remote access!");
+            info!("API key authentication is DISABLED");
+            if !self.is_localhost {
+                warn!("WARNING: Remote access enabled without authentication - this is a security risk!");
+            }
             Ok(rocket)
         }
     }
 
     async fn on_request(&self, request: &mut Request<'_>, _: &mut Data<'_>) {
-        // ALWAYS allow localhost connections without authentication
-        // This ensures backward compatibility
-        if self.is_localhost {
+        // Check if the CLIENT is connecting from localhost
+        // This is key for backward compatibility - local clients should always work
+        let client_is_localhost = if let Some(remote_addr) = request.remote() {
+            let ip = remote_addr.ip();
+            ip.is_loopback()
+        } else {
+            false
+        };
+
+        // ALWAYS allow localhost clients without authentication
+        // This ensures backward compatibility with aw-qt and other local clients
+        if client_is_localhost {
             return;
         }
 
@@ -190,9 +198,16 @@ impl<'r> FromRequest<'r> for ApiKey {
             .await
             .expect("AWConfig not found in state");
 
-        // ALWAYS allow localhost connections without authentication
-        let is_localhost = config.address == "127.0.0.1" || config.address == "localhost";
-        if is_localhost {
+        // Check if the CLIENT is connecting from localhost
+        let client_is_localhost = if let Some(remote_addr) = request.remote() {
+            let ip = remote_addr.ip();
+            ip.is_loopback()
+        } else {
+            false
+        };
+
+        // ALWAYS allow localhost clients without authentication
+        if client_is_localhost {
             return Outcome::Success(ApiKey);
         }
 
