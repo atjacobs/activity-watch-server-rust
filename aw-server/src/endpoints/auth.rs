@@ -140,24 +140,20 @@ impl Fairing for AuthCheck {
     }
 
     async fn on_request(&self, request: &mut Request<'_>, _: &mut Data<'_>) {
-        // Check if the CLIENT is connecting from localhost
-        // This is key for backward compatibility - local clients should always work
-        let client_is_localhost = if let Some(remote_addr) = request.remote() {
-            let ip = remote_addr.ip();
-            ip.is_loopback()
-        } else {
-            false
-        };
+        // If auth is not required globally, allow everything
+        if !self.config.require_auth {
+            return;
+        }
+
+        // Check if the CLIENT is connecting from localhost (loopback interface)
+        let client_is_localhost = request
+            .remote()
+            .map(|addr| addr.ip().is_loopback())
+            .unwrap_or(false);
 
         // ALWAYS allow localhost clients without authentication
         // This ensures backward compatibility with aw-qt and other local clients
         if client_is_localhost {
-            return;
-        }
-
-        // For remote connections, check if auth is required
-        if !self.config.require_auth {
-            // Authentication is disabled
             return;
         }
 
@@ -176,7 +172,7 @@ impl Fairing for AuthCheck {
             return;
         }
 
-        // Validate API key for all API endpoints
+        // Validate API key for remote API endpoints
         if !self.validate_request(request) {
             info!("Unauthorized request to {}, denying", path);
             redirect_unauthorized(request);
@@ -198,21 +194,19 @@ impl<'r> FromRequest<'r> for ApiKey {
             .await
             .expect("AWConfig not found in state");
 
-        // Check if the CLIENT is connecting from localhost
-        let client_is_localhost = if let Some(remote_addr) = request.remote() {
-            let ip = remote_addr.ip();
-            ip.is_loopback()
-        } else {
-            false
-        };
-
-        // ALWAYS allow localhost clients without authentication
-        if client_is_localhost {
+        // If auth is not required globally, allow the request
+        if !config.security.require_auth {
             return Outcome::Success(ApiKey);
         }
 
-        // If auth is not required, allow the request
-        if !config.security.require_auth {
+        // Check if the CLIENT is connecting from localhost (loopback interface)
+        let client_is_localhost = request
+            .remote()
+            .map(|addr| addr.ip().is_loopback())
+            .unwrap_or(false);
+
+        // ALWAYS allow localhost clients without authentication
+        if client_is_localhost {
             return Outcome::Success(ApiKey);
         }
 
