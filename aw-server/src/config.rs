@@ -1,10 +1,12 @@
 use std::fs::File;
 use std::io::{Read, Write};
+use std::path::PathBuf;
 
 use rocket::config::Config;
 use rocket::data::{Limits, ToByteUnit};
 use rocket::log::LogLevel;
 use serde::{Deserialize, Serialize};
+use sha2::{Digest, Sha256};
 
 use crate::dirs;
 
@@ -221,4 +223,91 @@ pub fn create_config(testing: bool) -> AWConfig {
     let aw_config: AWConfig = toml::from_str(&content).expect("Failed to parse config file");
 
     aw_config
+}
+
+/// Generate a random API key (32 alphanumeric characters)
+pub fn generate_api_key() -> String {
+    use rand::Rng;
+    const CHARSET: &[u8] = b"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789";
+    let mut rng = rand::thread_rng();
+
+    (0..32)
+        .map(|_| {
+            let idx = rng.gen_range(0..CHARSET.len());
+            CHARSET[idx] as char
+        })
+        .collect()
+}
+
+/// Hash an API key using SHA256
+pub fn hash_api_key(api_key: &str) -> String {
+    let mut hasher = Sha256::new();
+    hasher.update(api_key.as_bytes());
+    let result = hasher.finalize();
+    hex::encode(result)
+}
+
+/// Get the path where API keys are stored
+pub fn get_api_key_file(testing: bool) -> PathBuf {
+    let mut path = dirs::get_config_dir().unwrap();
+    if testing {
+        path.push("api_keys_testing.txt");
+    } else {
+        path.push("api_keys.txt");
+    }
+    path
+}
+
+/// Save an API key (plaintext) to a file for user reference
+pub fn save_api_key_to_file(api_key: &str, testing: bool) -> Result<PathBuf, std::io::Error> {
+    let key_file = get_api_key_file(testing);
+    let mut file = File::create(&key_file)?;
+    writeln!(file, "# ActivityWatch API Keys")?;
+    writeln!(file, "# Keep this file secure!")?;
+    writeln!(file, "#")?;
+    writeln!(file, "# Use this key when connecting to the server:")?;
+    writeln!(file, "#   Authorization: Bearer <key>")?;
+    writeln!(file, "#   or")?;
+    writeln!(file, "#   X-API-Key: <key>")?;
+    writeln!(file, "")?;
+    writeln!(file, "{}", api_key)?;
+    file.sync_all()?;
+    Ok(key_file)
+}
+
+/// Generate a new API key, add it to config, and save for user reference
+pub fn generate_and_save_api_key(testing: bool) -> Result<(String, String, PathBuf), Box<dyn std::error::Error>> {
+    let api_key = generate_api_key();
+    let hash = hash_api_key(&api_key);
+
+    // Save the plaintext key for user
+    let key_file = save_api_key_to_file(&api_key, testing)?;
+
+    // Read existing config
+    let mut config_path = dirs::get_config_dir().unwrap();
+    if testing {
+        config_path.push("config-testing.toml");
+    } else {
+        config_path.push("config.toml");
+    }
+
+    // Update config with the hash
+    let mut config: AWConfig = if config_path.exists() {
+        let mut rfile = File::open(&config_path)?;
+        let mut content = String::new();
+        rfile.read_to_string(&mut content)?;
+        toml::from_str(&content)?
+    } else {
+        AWConfig::default()
+    };
+
+    config.security.api_keys.push(hash.clone());
+
+    // Write updated config
+    let mut wfile = File::create(&config_path)?;
+    let config_str = toml::to_string_pretty(&config)?;
+    wfile.write_all(config_str.as_bytes())?;
+    wfile.sync_all()?;
+
+    Ok((api_key, hash, key_file))
 }

@@ -57,6 +57,10 @@ struct Opts {
     /// Don't import from aw-server-python if no aw-server-rust db found
     #[clap(long)]
     no_legacy_import: bool,
+
+    /// Generate a new API key and exit
+    #[clap(long)]
+    generate_api_key: bool,
 }
 
 #[rocket::main]
@@ -77,6 +81,41 @@ async fn main() -> Result<(), rocket::Error> {
 
     if testing {
         info!("Running server in Testing mode");
+    }
+
+    // Handle --generate-api-key flag
+    if opts.generate_api_key {
+        info!("Generating new API key...");
+        match config::generate_and_save_api_key(testing) {
+            Ok((api_key, hash, key_file)) => {
+                println!();
+                println!("==========================================");
+                println!("  NEW API KEY GENERATED");
+                println!("==========================================");
+                println!();
+                println!("API Key: {}", api_key);
+                println!("Hash:    {}", hash);
+                println!();
+                println!("The plaintext key has been saved to:");
+                println!("  {}", key_file.display());
+                println!();
+                println!("The hash has been added to your config:");
+                let config_path = dirs::get_config_dir()
+                    .unwrap()
+                    .join(if testing { "config-testing.toml" } else { "config.toml" });
+                println!("  {}", config_path.display());
+                println!();
+                println!("Use the API key (not the hash) when connecting:");
+                println!("  Authorization: Bearer {}", api_key);
+                println!();
+                println!("==========================================");
+                return Ok(());
+            }
+            Err(e) => {
+                error!("Failed to generate API key: {}", e);
+                std::process::exit(1);
+            }
+        }
     }
 
     let mut config = config::create_config(testing);
@@ -105,8 +144,48 @@ async fn main() -> Result<(), rocket::Error> {
         if !config.security.require_auth {
             error!("❌ CRITICAL SECURITY WARNING: Remote access enabled WITHOUT authentication!");
             error!("   Set security.require_auth = true and add API keys to config.toml");
-            error!("   Generate an API key hash: echo -n 'your-secret-key' | sha256sum");
+            error!("   Or run: aw-server --generate-api-key");
             std::process::exit(1);
+        }
+
+        // Auto-generate API key if none exists
+        if config.security.api_keys.is_empty() {
+            warn!("⚠️  No API keys configured. Generating one automatically...");
+            println!();
+
+            match config::generate_and_save_api_key(testing) {
+                Ok((api_key, _hash, key_file)) => {
+                    info!("✓ API key generated successfully!");
+                    println!();
+                    println!("==========================================");
+                    println!("  AUTO-GENERATED API KEY");
+                    println!("==========================================");
+                    println!();
+                    println!("API Key: {}", api_key);
+                    println!();
+                    println!("This key has been saved to:");
+                    println!("  {}", key_file.display());
+                    println!();
+                    println!("Use this key when connecting to the server:");
+                    println!("  Authorization: Bearer {}", api_key);
+                    println!("  or");
+                    println!("  X-API-Key: {}", api_key);
+                    println!();
+                    println!("⚠️  IMPORTANT: Save this key now!");
+                    println!("   You'll need it to access the server.");
+                    println!();
+                    println!("==========================================");
+                    println!();
+
+                    // Reload config to get the updated key
+                    config = config::create_config(testing);
+                }
+                Err(e) => {
+                    error!("❌ Failed to generate API key: {}", e);
+                    error!("   Run manually: aw-server --generate-api-key");
+                    std::process::exit(1);
+                }
+            }
         }
 
         if !config.tls.enabled {
