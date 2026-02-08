@@ -1,9 +1,9 @@
 # Generate API Key and Hash for ActivityWatch
-# Usage: .\generate-api-key.ps1 [ApiKey]
+# Usage: powershell -ExecutionPolicy Bypass -File .\generate-api-key.ps1 [ApiKey]
 # If no ApiKey provided, generates a random one
 
 param(
-    [string]$ApiKey
+    [string]$ApiKey = ""
 )
 
 Write-Host ""
@@ -11,7 +11,7 @@ Write-Host "ActivityWatch API Key Generator" -ForegroundColor Cyan
 Write-Host "================================" -ForegroundColor Cyan
 Write-Host ""
 
-if (-not $ApiKey) {
+if ($ApiKey -eq "") {
     # Generate random key
     Write-Host "No API key provided. Generating a random secure key..." -ForegroundColor Yellow
     Write-Host ""
@@ -24,7 +24,7 @@ if (-not $ApiKey) {
     Write-Host "Generated API Key:" -ForegroundColor Green
     Write-Host $ApiKey -ForegroundColor Yellow
     Write-Host ""
-    Write-Host "⚠️  IMPORTANT: Save this key securely! You will need it to access the server." -ForegroundColor Red
+    Write-Host "WARNING: Save this key securely! You will need it to access the server." -ForegroundColor Red
     Write-Host ""
 } else {
     Write-Host "Using provided API key..." -ForegroundColor Yellow
@@ -64,18 +64,18 @@ Write-Host ""
 Write-Host "[security]" -ForegroundColor White
 Write-Host "require_auth = true" -ForegroundColor White
 Write-Host "allow_remote = true" -ForegroundColor White
-Write-Host "api_keys = [`"$hashString`"]" -ForegroundColor White
+Write-Host ('api_keys = ["' + $hashString + '"]') -ForegroundColor White
 Write-Host ""
 Write-Host "3. To allow remote connections, also update the address:"
 Write-Host ""
-Write-Host "address = `"0.0.0.0`"  # Listen on all network interfaces" -ForegroundColor White
+Write-Host 'address = "0.0.0.0"  # Listen on all network interfaces' -ForegroundColor White
 Write-Host ""
 Write-Host "4. (Optional) Enable TLS for encrypted connections:"
 Write-Host ""
 Write-Host "[tls]" -ForegroundColor White
 Write-Host "enabled = true" -ForegroundColor White
-Write-Host "cert = `"C:\\path\\to\\cert.pem`"" -ForegroundColor White
-Write-Host "key = `"C:\\path\\to\\key.pem`"" -ForegroundColor White
+Write-Host 'cert = "C:\path\to\cert.pem"' -ForegroundColor White
+Write-Host 'key = "C:\path\to\key.pem"' -ForegroundColor White
 Write-Host ""
 Write-Host "5. Restart the ActivityWatch server" -ForegroundColor Yellow
 Write-Host ""
@@ -95,48 +95,47 @@ Write-Host ""
 Write-Host "Would you like to open the config file now? (Y/N): " -ForegroundColor Yellow -NoNewline
 $response = Read-Host
 
-if ($response -eq "Y" -or $response -eq "y") {
+if (($response -eq "Y") -or ($response -eq "y")) {
     if (-not (Test-Path $configPath)) {
         Write-Host ""
-        Write-Host "Config file doesn't exist. Creating it with template..." -ForegroundColor Yellow
+        Write-Host "Config file does not exist. Creating it with template..." -ForegroundColor Yellow
 
-        $template = @"
-### ActivityWatch Server Configuration ###
+        $template = "### ActivityWatch Server Configuration ###`n"
+        $template += "`n"
+        $template += "# Uncomment and modify the settings below as needed`n"
+        $template += "`n"
+        $template += "# Bind address (use 0.0.0.0 for all interfaces, 127.0.0.1 for localhost only)`n"
+        $template += "#address = `"127.0.0.1`"`n"
+        $template += "`n"
+        $template += "# Port to listen on`n"
+        $template += "#port = 5600`n"
+        $template += "`n"
+        $template += "# CORS origins (for web access)`n"
+        $template += "#cors = []`n"
+        $template += "`n"
+        $template += "[security]`n"
+        $template += "# Require API key authentication`n"
+        $template += "require_auth = true`n"
+        $template += "`n"
+        $template += "# Allow remote access (required for non-localhost addresses)`n"
+        $template += "allow_remote = true`n"
+        $template += "`n"
+        $template += "# API key hashes (add the hash generated above)`n"
+        $template += "api_keys = [`"$hashString`"]`n"
+        $template += "`n"
+        $template += "[tls]`n"
+        $template += "# Enable TLS/HTTPS`n"
+        $template += "#enabled = false`n"
+        $template += "`n"
+        $template += "# Certificate file path`n"
+        $template += "#cert = `"cert.pem`"`n"
+        $template += "`n"
+        $template += "# Private key file path`n"
+        $template += "#key = `"key.pem`"`n"
 
-# Uncomment and modify the settings below as needed
-
-# Bind address (use 0.0.0.0 for all interfaces, 127.0.0.1 for localhost only)
-#address = "127.0.0.1"
-
-# Port to listen on
-#port = 5600
-
-# CORS origins (for web access)
-#cors = []
-
-[security]
-# Require API key authentication
-require_auth = true
-
-# Allow remote access (required for non-localhost addresses)
-allow_remote = true
-
-# API key hashes (add the hash generated above)
-api_keys = ["$hashString"]
-
-[tls]
-# Enable TLS/HTTPS
-#enabled = false
-
-# Certificate file path
-#cert = "cert.pem"
-
-# Private key file path
-#key = "key.pem"
-"@
-
-        $template | Out-File -FilePath $configPath -Encoding UTF8
-        Write-Host "✓ Created config file with your API key hash" -ForegroundColor Green
+        # Use Set-Content instead of Out-File for better compatibility
+        Set-Content -Path $configPath -Value $template -Encoding UTF8
+        Write-Host "Created config file with your API key hash" -ForegroundColor Green
     }
 
     Write-Host ""
@@ -145,5 +144,5 @@ api_keys = ["$hashString"]
 }
 
 Write-Host ""
-Write-Host "Done! 🎉" -ForegroundColor Green
+Write-Host "Done!" -ForegroundColor Green
 Write-Host ""
